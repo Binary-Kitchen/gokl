@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,6 +25,12 @@ type logentry struct {
 	media    []string
 	body     string
 }
+
+type ByBegin []logentry
+
+func (a ByBegin) Len() int           { return len(a) }
+func (a ByBegin) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByBegin) Less(i, j int) bool { return a[i].begin.Before(a[j].end) }
 
 func getRepo(repodir string, repourl string) error {
 	var repo *git.Repository
@@ -45,8 +52,15 @@ func getRepo(repodir string, repourl string) error {
 	if err != nil {
 		return errors.New("Error while creating worktree:" + err.Error())
 	}
+	err = tree.Reset(&git.ResetOptions{
+		Mode: git.HardReset,
+	})
+	if err != nil {
+		return errors.New("Error while resetting repo:" + err.Error())
+	}
 	err = tree.Pull(&git.PullOptions{
 		RemoteName: "origin",
+		Force:      true,
 	})
 	if err != nil {
 		if err != git.NoErrAlreadyUpToDate {
@@ -148,6 +162,11 @@ func generateLogEntries(repodir string) ([]logentry, error) {
 	return result, nil
 }
 
+func generateGopherDir(entries []logentry, gopherdir string, imageurl string) error {
+
+	return nil
+}
+
 func main() {
 	var repodir string
 	var gopherdir string
@@ -167,5 +186,6 @@ func main() {
 	if err != nil {
 		log.Fatal("Error parsing Entries:", err)
 	}
+	sort.Sort(ByBegin(les))
 	pretty.Println(les)
 }
