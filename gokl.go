@@ -34,23 +34,23 @@ func getRepo(repodir string, repourl string) error {
 	})
 	if err != nil {
 		if err != git.ErrRepositoryAlreadyExists {
-			return err
+			return errors.New("Error while cloning repo:" + err.Error())
 		}
 		repo, err = git.PlainOpen(repodir)
 		if err != nil {
-			return err
+			return errors.New("Error while opening repo:" + err.Error())
 		}
 	}
 	tree, err := repo.Worktree()
 	if err != nil {
-		return err
+		return errors.New("Error while creating worktree:" + err.Error())
 	}
 	err = tree.Pull(&git.PullOptions{
 		RemoteName: "origin",
 	})
 	if err != nil {
 		if err != git.NoErrAlreadyUpToDate {
-			return err
+			return errors.New("Error while pulling changes:" + err.Error())
 		}
 	}
 	return nil
@@ -79,7 +79,7 @@ func parseFile(filepath string) (logentry, error) {
 			case "BEGIN":
 				t, err := time.Parse(datelayout, split[1])
 				if err != nil {
-					return result, err
+					return result, errors.New("Error while parsing date:" + err.Error())
 				}
 				result.begin = t
 
@@ -87,7 +87,7 @@ func parseFile(filepath string) (logentry, error) {
 				if split[1] != "None" {
 					t, err := time.Parse(datelayout, split[1])
 					if err != nil {
-						return result, err
+						return result, errors.New("Error while parsing date:" + err.Error())
 					}
 					result.end = t
 				}
@@ -167,6 +167,5 @@ func main() {
 	if err != nil {
 		log.Fatal("Error parsing Entries:", err)
 	}
-	//fmt.Println(les)
 	pretty.Println(les)
 }
