@@ -49,7 +49,7 @@ type ByBegin []logentry
 
 func (a ByBegin) Len() int           { return len(a) }
 func (a ByBegin) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByBegin) Less(i, j int) bool { return a[i].begin.Before(a[j].end) }
+func (a ByBegin) Less(i, j int) bool { return a[i].begin.Before(a[j].begin) }
 
 func getRepo(repodir string, repourl string) error {
 	var repo *git.Repository
@@ -262,28 +262,20 @@ func formatEntry(entry logentry, imageurl string, linkcount, mediacount int) (ou
 }
 
 func generateGopherDir(entries []logentry, gopherdir string, imageurl string, templatepath string) error {
-	year := ""
 	month := ""
-	yearpath := ""
-	monthpath := ""
 	mediacount := 1
 	linkcount := 1
 	var currentpage outputpage
-	for _, e := range entries {
-		newyear := e.begin.Format("2006")
+	for index, e := range entries {
 		newmonth := e.begin.Format("01-January")
-		if year != newyear {
-			year = newyear
-			yearpath = gopherdir + string(filepath.Separator) + year
-			err := os.MkdirAll(yearpath, 0755)
-			if err != nil {
-				return errors.New("Error creating year directory: " + err.Error())
-			}
-		}
 		if month != newmonth {
+			year := e.begin.Format("2006")
 			currentpage.Month = month
+			if newmonth == "01-January" {
+				year = entries[index-1].begin.Format("2006")
+			}
 			currentpage.Year = year
-			monthpath = yearpath + string(filepath.Separator) + month
+			monthpath := gopherdir + string(filepath.Separator) + year + string(filepath.Separator) + month
 			err := os.MkdirAll(monthpath, 0755)
 			if err != nil {
 				return errors.New("Error creating month directory: " + err.Error())
