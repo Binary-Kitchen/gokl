@@ -8,14 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
-	"github.com/kr/pretty"
 	git "gopkg.in/src-d/go-git.v4"
 )
 
 const datelayout = "2006-01-02"
+const outputdate = "Monday, 2. January 2006"
 
 type logentry struct {
 	begin    time.Time
@@ -24,6 +26,23 @@ type logentry struct {
 	appendix string
 	media    []string
 	body     string
+}
+
+type outputentry struct {
+	Begin    string
+	End      string
+	Topic    string
+	Appendix string
+	Media    []string
+	Body     string
+}
+
+type outputpage struct {
+	Entries    []outputentry
+	MediaLinks []string
+	Links      []string
+	Month      string
+	Year       string
 }
 
 type ByBegin []logentry
@@ -162,7 +181,139 @@ func generateLogEntries(repodir string) ([]logentry, error) {
 	return result, nil
 }
 
-func generateGopherDir(entries []logentry, gopherdir string, imageurl string) error {
+func convertlink(in string, count int) (string, string) {
+	var inlink, listlink string
+	status := 0
+	scount := strconv.Itoa(count)
+	enclosed := strings.Replace(in, "]]", "", -1)
+
+	if strings.Contains(in, "[[:") {
+		status = 2
+		enclosed = strings.Replace(enclosed, "[[:", "", -1)
+	} else {
+		enclosed = strings.Replace(enclosed, "[[", "", -1)
+		if strings.Contains(enclosed, "http://") || strings.Contains(enclosed, "https://") {
+			status = 3
+		} else {
+			status = 2
+		}
+	}
+
+	split := strings.Split(enclosed, "|")
+	link := split[0]
+	name := ""
+	if len(split) > 1 {
+		name = split[1]
+	} else {
+		name = link
+	}
+
+	switch status {
+	case 2:
+		inlink = "[" + name + "][LINK:" + scount + "]"
+		listlink = "[h|" + "[LINK " + scount + "]: " + name + "|" + "URL:http://www.binary-kitchen.de/wiki/doku.php?id=" + link + "|gopher.binary-kitchen.de|70]"
+	case 3:
+		inlink = "[" + name + "][LINK:" + scount + "]"
+		listlink = "[h|" + "[LINK " + scount + "]: " + name + "|" + "URL:" + link + "|gopher.binary-kitchen.de|70]"
+
+	}
+
+	return inlink, listlink
+}
+
+func formatEntry(entry logentry, imageurl string, linkcount, mediacount int) (outputentry, []string, []string, int, int) {
+	var outentry outputentry
+	var links []string
+	var media []string
+
+	outentry.Begin = entry.begin.Format(outputdate)
+	if entry.end.After(entry.begin) {
+		outentry.End = "bis " + entry.end.Format(outputdate)
+	}
+	outentry.Topic = entry.topic
+	outentry.Appendix = entry.appendix
+	outentry.Body = entry.body
+	for strings.Contains(outentry.Body, "[[") {
+		sep := strings.SplitN(outentry.Body, "[[", 2)
+		if len(sep) > 1 {
+			before := sep[0]
+			remaining := sep[1]
+			sep := strings.SplitAfterN(remaining, "]]", 2)
+			if len(sep) > 1 {
+				middle := sep[0]
+				after := sep[1]
+				inlink, listlink := convertlink(middle, linkcount)
+				links = append(links, listlink)
+				outentry.Body = before + inlink + after
+				linkcount = linkcount + 1
+			}
+		}
+	}
+	for _, m := range entry.media {
+		imagename := "[BILD " + strconv.Itoa(mediacount) + "]"
+		outentry.Media = append(outentry.Media, imagename)
+
+		imagelink := "[h|" + imagename + "|URL:" + imageurl + m + "|gopher.binary-kitchen.de|70]"
+		media = append(media, imagelink)
+		mediacount = mediacount + 1
+	}
+
+	return outentry, links, media, linkcount, mediacount
+}
+
+func generateGopherDir(entries []logentry, gopherdir string, imageurl string, templatepath string) error {
+	year := ""
+	month := ""
+	yearpath := ""
+	monthpath := ""
+	mediacount := 1
+	linkcount := 1
+	var currentpage outputpage
+	for _, e := range entries {
+		newyear := e.begin.Format("2006")
+		newmonth := e.begin.Format("01-January")
+		if year != newyear {
+			year = newyear
+			yearpath = gopherdir + string(filepath.Separator) + year
+			err := os.MkdirAll(yearpath, 0755)
+			if err != nil {
+				return errors.New("Error creating year directory: " + err.Error())
+			}
+		}
+		if month != newmonth {
+			currentpage.Month = month
+			currentpage.Year = year
+			monthpath = yearpath + string(filepath.Separator) + month
+			err := os.MkdirAll(monthpath, 0755)
+			if err != nil {
+				return errors.New("Error creating month directory: " + err.Error())
+			}
+			t, err := template.ParseFiles(templatepath)
+			if err != nil {
+				return errors.New("Error parsing tempalte: " + err.Error())
+			}
+			f, err := os.Create(monthpath + string(filepath.Separator) + "index.gph")
+			if err != nil {
+				return errors.New("Error creating gopherfile: " + err.Error())
+			}
+			defer f.Close()
+			err = t.Execute(f, &currentpage)
+			if err != nil {
+				return errors.New("Error executing template: " + err.Error())
+			}
+			f.Close()
+			currentpage = outputpage{}
+			mediacount = 1
+			linkcount = 1
+			month = newmonth
+		}
+		outentry, links, media, newlinkcount, newmediacount := formatEntry(e, imageurl, linkcount, mediacount)
+		currentpage.Entries = append(currentpage.Entries, outentry)
+		currentpage.Links = append(currentpage.Links, links...)
+		currentpage.MediaLinks = append(currentpage.MediaLinks, media...)
+		linkcount = newlinkcount
+		mediacount = newmediacount
+	}
 
 	return nil
 }
@@ -172,20 +323,29 @@ func main() {
 	var gopherdir string
 	var repourl string
 	var imageurl string
+	var templatepath string
 	flag.StringVar(&repodir, "r", "./", "Directory for checking out the repository")
-	flag.StringVar(&gopherdir, "g", "/var/gopher", "Directory for the generated gopher content")
+	flag.StringVar(&gopherdir, "g", "/var/gopher/Kuechenlog", "Directory for the generated gopher content")
 	flag.StringVar(&repourl, "u", "https://github.com/Binary-Kitchen/kitchenlog.git", "URL of the log repository")
 	flag.StringVar(&imageurl, "i", "https://raw.githubusercontent.com/Binary-Kitchen/kitchenlog/master/media/", "The URL for the raw image files")
+	flag.StringVar(&templatepath, "t", "./month-template.txt", "Path to the template for the gopher pages")
 	flag.Parse()
 
+	log.Println("Getting Repository")
 	err := getRepo(repodir, repourl)
 	if err != nil {
 		log.Fatal("Error getting Repo:", err)
 	}
+	log.Println("Parsing Log Entries")
 	les, err := generateLogEntries(repodir)
 	if err != nil {
 		log.Fatal("Error parsing Entries:", err)
 	}
 	sort.Sort(ByBegin(les))
-	pretty.Println(les)
+	log.Println("Wirting in gopher dir")
+	err = generateGopherDir(les, gopherdir, imageurl, templatepath)
+	if err != nil {
+		log.Fatal("Error creating gopher files:", err)
+	}
+	log.Println("Done")
 }

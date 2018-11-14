@@ -1,0 +1,18 @@
+== Küchen-Log {{.Month}} {{.Year}} ==
+
+ **//If it's not in the log, it didn't happen!//**
+
+{{range $index, $element := .Entries}}
+==== {{$element.Topic}}: {{$element.Begin}} {{$element.End}}====
+{{$element.Body}}{{range $index2, $element2 := $element.Media}}
+{{$element2}}{{end}}
+{{end}}
+Links:
+----------------------------------------------------------------------------
+{{range $index, $link := .Links}}
+{{$link}}{{end}}
+
+Bilder:
+----------------------------------------------------------------------------
+{{range $index, $link := .MediaLinks}}
+{{$link}}{{end}}
