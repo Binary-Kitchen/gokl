@@ -261,39 +261,48 @@ func formatEntry(entry logentry, imageurl string, linkcount, mediacount int) (ou
 	return outentry, links, media, linkcount, mediacount
 }
 
+func writeMonth(gopherdir string, year string, month string, templatepath string, currentpage outputpage) error {
+	currentpage.Month = month
+	currentpage.Year = year
+	monthpath := gopherdir + string(filepath.Separator) + year + string(filepath.Separator) + month
+	err := os.MkdirAll(monthpath, 0755)
+	if err != nil {
+		return errors.New("Error creating month directory: " + err.Error())
+	}
+	t, err := template.ParseFiles(templatepath)
+	if err != nil {
+		return errors.New("Error parsing tempalte: " + err.Error())
+	}
+	f, err := os.Create(monthpath + string(filepath.Separator) + "index.gph")
+	if err != nil {
+		return errors.New("Error creating gopherfile: " + err.Error())
+	}
+	defer f.Close()
+	err = t.Execute(f, &currentpage)
+	if err != nil {
+		return errors.New("Error executing template: " + err.Error())
+	}
+	f.Close()
+	return nil
+}
+
 func generateGopherDir(entries []logentry, gopherdir string, imageurl string, templatepath string) error {
 	month := ""
+	year := ""
 	mediacount := 1
 	linkcount := 1
 	var currentpage outputpage
 	for index, e := range entries {
 		newmonth := e.begin.Format("01-January")
 		if month != newmonth {
-			year := e.begin.Format("2006")
-			currentpage.Month = month
+			year = e.begin.Format("2006")
 			if newmonth == "01-January" {
 				year = entries[index-1].begin.Format("2006")
 			}
-			currentpage.Year = year
-			monthpath := gopherdir + string(filepath.Separator) + year + string(filepath.Separator) + month
-			err := os.MkdirAll(monthpath, 0755)
+			err := writeMonth(gopherdir, year, month, templatepath, currentpage)
 			if err != nil {
-				return errors.New("Error creating month directory: " + err.Error())
+				return errors.New("Error writing month: " + err.Error())
 			}
-			t, err := template.ParseFiles(templatepath)
-			if err != nil {
-				return errors.New("Error parsing tempalte: " + err.Error())
-			}
-			f, err := os.Create(monthpath + string(filepath.Separator) + "index.gph")
-			if err != nil {
-				return errors.New("Error creating gopherfile: " + err.Error())
-			}
-			defer f.Close()
-			err = t.Execute(f, &currentpage)
-			if err != nil {
-				return errors.New("Error executing template: " + err.Error())
-			}
-			f.Close()
 			currentpage = outputpage{}
 			mediacount = 1
 			linkcount = 1
@@ -306,7 +315,10 @@ func generateGopherDir(entries []logentry, gopherdir string, imageurl string, te
 		linkcount = newlinkcount
 		mediacount = newmediacount
 	}
-
+	err := writeMonth(gopherdir, year, month, templatepath, currentpage)
+	if err != nil {
+		return errors.New("Error writing month: " + err.Error())
+	}
 	return nil
 }
 
