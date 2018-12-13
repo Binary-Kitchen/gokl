@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -89,14 +90,16 @@ func getRepo(repodir string, repourl string) error {
 	return nil
 }
 
-func parseFile(filepath string) (logentry, error) {
+func parseFile(fp string, mediapath string, repodir string) (logentry, error) {
 	var result logentry
 
-	b, err := ioutil.ReadFile(filepath)
+	b, err := ioutil.ReadFile(fp)
 	if err != nil {
-		return result, err
+		return result, errors.New("Error opening file:" + err.Error())
 	}
+
 	content := string(b)
+	fmt.Println(content)
 	split := strings.Split(content, "\n\n")
 	if len(split) != 2 {
 		return result, errors.New("Invalid entry format")
@@ -128,12 +131,20 @@ func parseFile(filepath string) (logentry, error) {
 				result.topic = split[1]
 			case "APPENDIX":
 				result.appendix = split[1]
-			case "MEDIA":
-				split := strings.Split(split[1], ",")
-				result.media = append(result.media, split[0])
 			}
 		}
 	}
+	if _, err := os.Stat(mediapath); !os.IsNotExist(err) {
+		fis, err := ioutil.ReadDir(mediapath)
+		if err != nil {
+			return result, errors.New("Error reading media path:" + err.Error())
+		}
+		for _, fi := range fis {
+			media := strings.TrimPrefix(filepath.Join(mediapath, fi.Name()), repodir)
+			result.media = append(result.media, media)
+		}
+	}
+	fmt.Println(result.media)
 	result.body = body
 
 	return result, nil
@@ -148,7 +159,7 @@ func generateLogEntries(repodir string) ([]logentry, error) {
 	}
 
 	for _, fi := range fis {
-		if fi.Name() != "media" {
+		if (fi.Name() != "media") && (fi.Name() != "dokuwiki") && (fi.Name() != ".git") {
 			if fi.IsDir() {
 				yeardir := repodir + string(filepath.Separator) + fi.Name()
 				fis2, err := ioutil.ReadDir(yeardir)
@@ -165,7 +176,16 @@ func generateLogEntries(repodir string) ([]logentry, error) {
 						for _, fi3 := range fis3 {
 							if !fi3.IsDir() {
 								path := monthdir + string(filepath.Separator) + fi3.Name()
-								le, err := parseFile(path)
+								mediadir := repodir + string(filepath.Separator) + "media" + string(filepath.Separator)
+								mediadir = mediadir + fi.Name() + string(filepath.Separator) + fi2.Name()
+								ext := filepath.Ext(fi3.Name())
+								filename := strings.TrimSuffix(fi3.Name(), ext)
+								split := strings.Split(filename, "-")
+								if len(split) > 1 {
+									mediadir = mediadir + string(filepath.Separator) + split[0] + string(filepath.Separator)
+									mediadir = mediadir + split[1] + string(filepath.Separator)
+								}
+								le, err := parseFile(path, mediadir, repodir)
 								if err != nil {
 									return nil, err
 								}
@@ -331,7 +351,7 @@ func main() {
 	flag.StringVar(&repodir, "r", "./", "Directory for checking out the repository")
 	flag.StringVar(&gopherdir, "g", "/var/gopher/Kuechenlog", "Directory for the generated gopher content")
 	flag.StringVar(&repourl, "u", "https://github.com/Binary-Kitchen/kitchenlog.git", "URL of the log repository")
-	flag.StringVar(&imageurl, "i", "https://raw.githubusercontent.com/Binary-Kitchen/kitchenlog/master/media/", "The URL for the raw image files")
+	flag.StringVar(&imageurl, "i", "https://raw.githubusercontent.com/Binary-Kitchen/kitchenlog/master", "The URL for the raw image files")
 	flag.StringVar(&templatepath, "t", "./month-template.txt", "Path to the template for the gopher pages")
 	flag.Parse()
 
